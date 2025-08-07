@@ -1,100 +1,127 @@
 
 import streamlit as st
 import pandas as pd
+import io
+import re
+
+def generate_scripts(df, start_index):
+    scripts = []
+    missing_data = []
+
+    gemstone_mapping = [
+        ('ThaiRubyWt', 'Thhai rubies'),
+        ('FreshWaterPearlWt', 'Fresshwater pearls'),
+        ('SouthSeaPearlWt', 'South Sea pearls'),
+        ('YellowSapphireWt', 'Yellow Supphires'),
+        ('SapphireWt', 'Supphires'),
+        ('CoralWt', 'Corals'),
+        ('OnyxWt', 'Onyx'),
+        ('MorganiteWt', 'Morganites'),
+        ('IoliteWt', 'Iolites'),
+        ('TanzanitesWt', 'Tanzanites'),
+        ('NavratnaWt', 'Navratanas'),
+        ('TurquoiseWt', 'Turquoises'),
+        ('ZambianEmeraldWt', 'Emerelds'),
+        ('RussianEmeraldWt', 'Emerelds')
+    ]
+
+    gold_columns = {
+        'GoldWeight24': '24Carit',
+        'GoldWeight22': '22Carit',
+        'GoldWeight18': '18Carit',
+        'GoldWeight14': '14Carit'
+    }
+
+    df = df.iloc[start_index:start_index+50].copy()
+
+    for idx, row in df.iterrows():
+        jewel_code = row.get('JewelCode', '')
+        if not isinstance(jewel_code, str):
+            jewel_code = str(jewel_code)
+        spaced_jewel_code = ' '.join(jewel_code.upper())
+
+        category = row.get('GrpGroupName', 'Jewelry')
+        net_weight = row.get('TotNetwt')
+
+        gold_weights = {col: row.get(col, 0) for col in gold_columns}
+        valid_gold = {k: v for k, v in gold_weights.items() if pd.notna(v) and v > 0}
+        gold_clause = ''
+
+        if valid_gold:
+            best_gold_col = max(valid_gold, key=lambda x: valid_gold[x])
+            karat = gold_columns[best_gold_col]
+            gold_clause = f'handcrafted in {karat} hall marked gold'
+        else:
+            missing_data.append(jewel_code)
+            karat = ''
+
+        diamond_clause = ''
+        if row.get('DiamondPc', 0) > 0:
+            diamond_clause = f"studded with natural cut diamonds, {int(row['DiamondPc'])} pieces weighing {row['DiamondWt']} Carits"
+        elif row.get('DiamondWt', 0) > 0:
+            diamond_clause = f"studded with natural cut diamonds, weighing {row['DiamondWt']} Carits"
+
+        polki_clause = ''
+        if row.get('PolkiPc', 0) > 0:
+            polki_clause = f"and Natural Syndicate uncut diamonds also called polki, {int(row['PolkiPc'])} pieces weighing {row['PolkiWt']} Carits"
+        elif row.get('PolkiWt', 0) > 0:
+            polki_clause = f"and Natural Syndicate uncut diamonds also called polki, weighing {row['PolkiWt']} Carits"
+
+        gemstone_clauses = []
+        for col, label in gemstone_mapping:
+            wt = row.get(col)
+            if pd.notna(wt) and wt > 0:
+                gemstone_clauses.append(f"{label} weighing {wt} Carits")
+
+        all_gems = ', '.join(gemstone_clauses)
+
+        if pd.isna(net_weight) or net_weight == 0:
+            missing_data.append(jewel_code)
+
+        parts = [
+            f"This is {category} {spaced_jewel_code}"
+        ]
+
+        if gold_clause:
+            parts.append(gold_clause)
+        if diamond_clause:
+            parts.append(diamond_clause)
+        if polki_clause:
+            parts.append(polki_clause)
+        if all_gems:
+            parts.append(all_gems)
+
+        if pd.notna(net_weight) and net_weight != 0:
+            parts.append(f"Net gold weight {net_weight} grams")
+
+        parts.append("At Tyaani we believe in transparency, every detail is shared with utmost clarity.")
+
+        final_script = '. '.join([p.strip().rstrip('.') for p in parts]) + '.'
+        scripts.append(final_script)
+
+    return scripts, missing_data
 
 st.set_page_config(page_title="Tyaani Script Generator", layout="centered")
-st.title("✨ Tyaani HeyGen Script Generator")
-st.markdown("Upload your Tyaani Excel line sheet and get up to 50 ready-to-use marketing scripts.")
+st.title("📜 Tyaani HeyGen Script Generator")
 
-uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx", "xls", "csv"])
+st.markdown("Upload your Excel file with a sheet named `Sheet1` and script columns.")
 
-def spaced(code):
-    return ' '.join(str(code))
-
-def get_karat(row):
-    weights = {
-        '24Carit': row.get('GoldWeight24') or 0,
-        '22Carit': row.get('GoldWeight22') or 0,
-        '18Carit': row.get('GoldWeight18') or 0,
-        '14Carit': row.get('GoldWeight14') or 0,
-    }
-    weights = {k: v for k, v in weights.items() if isinstance(v, (int, float)) and v > 0}
-    return max(weights, key=weights.get) if weights else None
-
-def studded_clause(row):
-    parts = []
-    if row.get('DiamondPc', 0) > 0:
-        parts.append(f"studded with natural cut diamonds, {int(row['DiamondPc'])} pieces weighing {row['DiamondWt']} Carits")
-    elif row.get('DiamondWt', 0) > 0:
-        parts.append(f"studded with natural cut diamonds, weighing {row['DiamondWt']} Carits")
-
-    if row.get('PolkiPc', 0) > 0:
-        parts.append(f"and Natural Syndicate uncut diamonds also called polki, {int(row['PolkiPc'])} pieces weighing {row['PolkiWt']} Carits")
-    elif row.get('PolkiWt', 0) > 0:
-        parts.append(f"and Natural Syndicate uncut diamonds also called polki, weighing {row['PolkiWt']} Carits")
-    return ', '.join(parts)
-
-gem_map = {
-    'ThaiRubyWt': 'Thhai rubies',
-    'FreshWaterPearlWt': 'Fresshwater pearls',
-    'SouthSeaPearlWt': 'South Sea pearls',
-    'YellowSapphireWt': 'Yellow Supphires',
-    'SapphireWt': 'Supphires',
-    'CoralWt': 'Corals',
-    'OnyxWt': 'Onyx',
-    'MorganiteWt': 'Morganites',
-    'IoliteWt': 'Iolites',
-    'TanzanitesWt': 'Tanzanites',
-    'NavratnaWt': 'Navratanas',
-    'TurquoiseWt': 'Turquoises',
-    'ZambianEmeraldWt': 'Emerelds',
-    'RussianEmeraldWt': 'Emerelds',
-}
-
-def gemstone_clause(row):
-    parts = []
-    for col, label in gem_map.items():
-        wt = row.get(col)
-        if isinstance(wt, (int, float)) and wt > 0:
-            parts.append(f"{label} weighing {wt} Carits")
-    return ', '.join(parts)
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+start_row = st.number_input("Start from SKU #", min_value=1, step=50, value=1)
 
 if uploaded_file:
     try:
-        df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
-    except:
-        st.error("Could not read 'Sheet1'. Please check your file.")
-        st.stop()
+        df = pd.read_excel(uploaded_file, sheet_name='Sheet1')
+        scripts, missing = generate_scripts(df, start_row - 1)
 
-    df = df.dropna(how='all')
-    scripts = []
-    missing = []
+        if scripts:
+            result = "\n\n".join([f"{i+1}. {s}" for i, s in enumerate(scripts)])
+            if missing:
+                result += "\n\nMissing Data:\n" + "\n".join([f"- {sku}" for sku in missing])
 
-    for i, (_, row) in enumerate(df.iterrows()):
-        if i >= 50:
-            break
-        jewelcode = str(row.get('JewelCode', '')).strip()
-        netwt = row.get('TotNetwt')
-        karat = get_karat(row)
+            st.text_area("Generated Scripts", value=result, height=600)
+            output_filename = f"Tyaani_Scripts_{start_row}_to_{start_row+49}.txt"
+            st.download_button("📥 Download .txt", data=result, file_name=output_filename, mime="text/plain")
 
-        if not jewelcode or not netwt or netwt == 0 or not karat:
-            missing.append(jewelcode)
-            continue
-
-        parts = [f"{len(scripts)+1}. This is {row['GrpGroupName']} {spaced(jewelcode)} handcrafted in {karat} hall marked gold"]
-        stud = studded_clause(row)
-        gems = gemstone_clause(row)
-        if stud:
-            parts.append(stud)
-        if gems:
-            parts.append(gems)
-        parts.append(f"Net gold weight {netwt} grams. At Tyaani we believe in transparency, every detail is shared with utmost clarity.")
-        scripts.append(' '.join(parts))
-
-    txt_output = '\n\n'.join(scripts)
-    txt_output += "\n\nMissing Data:\n" + '\n'.join(f"- {sku}" for sku in missing)
-
-    st.download_button("📄 Download Scripts (.txt)", txt_output, file_name="tyaani_scripts.txt")
-    st.text_area("Preview Output", txt_output, height=400)
-else:
-    st.info("Please upload an Excel file with a 'Sheet1' tab.")
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
